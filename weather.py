@@ -1,13 +1,24 @@
 from datetime import datetime, timedelta
+import logging
+import time
+
 
 from homeassistant.components.weather import (
     WeatherEntity, ATTR_FORECAST_CONDITION,
     ATTR_FORECAST_TEMP, ATTR_FORECAST_TEMP_LOW, ATTR_FORECAST_TIME, ATTR_FORECAST_WIND_BEARING, ATTR_FORECAST_WIND_SPEED)
 
-from homeassistant.const import (TEMP_CELSIUS, TEMP_FAHRENHEIT, CONF_API_KEY, CONF_NAME)
+from homeassistant.const import (
+    TEMP_CELSIUS,
+    TEMP_FAHRENHEIT,
+    CONF_CODE,
+    CONF_NAME,
+    CONF_SCAN_INTERVAL
+)
 
 import requests
 import json
+
+_LOGGER = logging.getLogger(__name__)
 
 VERSION = '1.0.0'
 DOMAIN = 'weathernmc'
@@ -15,7 +26,7 @@ DOMAIN = 'weathernmc'
 CONDITION_MAP = {
     '晴': 'sunny',
     '多云': 'cloudy',
-    '局部多云': 'partlycloudy',    
+    '局部多云': 'partlycloudy',
     '阴': 'cloudy',
     '雾': 'fog',
     '中雾': 'fog',
@@ -43,15 +54,24 @@ CONDITION_MAP = {
 }
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
-    add_entities([NMCWeather(api_key=config.get(CONF_API_KEY),
-                                        name=config.get(CONF_NAME, 'weathernmc'))])
+    add_entities(
+        [
+            NMCWeather(
+                code=config.get(CONF_CODE),
+                name=config.get(CONF_NAME, 'weathernmc'),
+                interval=config.get(CONF_SCAN_INTERVAL, 60)
+            )
+        ]
+    )
 
 
 class NMCWeather(WeatherEntity):
 
-    def __init__(self, api_key: str,name: str):
-        self._api_key = api_key
+    def __init__(self, code: str, name: str, interval: int):
+        self.code = code
         self._name = name
+        self.interval = interval
+        self.update_ts = int(time.time())
         self.update()
 
     @property
@@ -60,12 +80,12 @@ class NMCWeather(WeatherEntity):
 
     @property
     def state(self):
-        skycon = self._realtime_data['weather']['info']
+        skycon = self.weather_data['real']['weather']['info']
         return CONDITION_MAP[skycon]
 
     @property
     def temperature(self):
-        return self._realtime_data['weather']['temperature']
+        return self.weather_data['real']['weather']['temperature']
 
     @property
     def temperature_unit(self):
@@ -73,24 +93,24 @@ class NMCWeather(WeatherEntity):
 
     @property
     def humidity(self):
-        return float(self._realtime_data['weather']['humidity']) 
+        return float(self.weather_data['real']['weather']['humidity']) 
 
     @property
     def wind_speed(self):
-        return self._realtime_data['wind']['speed']
+        return self.weather_data['real']['wind']['speed']
 
     @property
     def wind_bearing(self):
-        return self._realtime_data['wind']['direct']
+        return self.weather_data['real']['wind']['direct']
 
     @property
     def wind_speed(self):
-        return self._realtime_data['wind']['power']
+        return self.weather_data['real']['wind']['power']
 
 
     @property
     def pressure(self):
-        return round(float(self._realtime_data['weather']['airpressure']) / 100, 2)
+        return round(float(self.weather_data['real']['weather']['airpressure']) / 100, 2)
 
 
     @property
@@ -99,15 +119,15 @@ class NMCWeather(WeatherEntity):
 
     @property
     def aqi(self):
-        return self._air_data['data']['air']['aqi']
+        return self.weather_data['air']['aqi']
 
     @property
     def aqi_description(self):
-        return self._air_data['data']['air']['aqi']
+        return self.weather_data['air']['aqi']
         
     @property
     def alert(self):
-        return self._realtime_data['data']['real']['warn']['alert']
+        return self.weather_data['real']['warn']['alert']
 
     @property
     def state_attributes(self):
@@ -119,27 +139,37 @@ class NMCWeather(WeatherEntity):
     def forecast(self):
         forecast_data = []
         for i in range(1, 7):
-            time_str = self._forecast_data['data']['predict']['detail'][i]['date']
+            time_str = self.weather_data['predict']['detail'][i]['date']
             data_dict = {
                 ATTR_FORECAST_TIME: datetime.strptime(time_str, '%Y-%m-%d'),
-                ATTR_FORECAST_CONDITION: CONDITION_MAP[self._forecast_data['data']['predict']['detail'][i]['day']['weather']['info']],
-                ATTR_FORECAST_TEMP: self._forecast_data['data']['tempchart'][i+7]['max_temp'],
-                ATTR_FORECAST_TEMP_LOW: self._forecast_data['data']['tempchart'][i+7]['min_temp'],
-                ATTR_FORECAST_WIND_BEARING: self._forecast_data['data']['predict']['detail'][i]['day']['wind']['direct'],
-                ATTR_FORECAST_WIND_SPEED: self._forecast_data['data']['predict']['detail'][i]['day']['wind']['power']
+                ATTR_FORECAST_CONDITION: CONDITION_MAP[self.weather_data['predict']['detail'][i]['day']['weather']['info']],
+                ATTR_FORECAST_TEMP: self.weather_data['tempchart'][i+7]['max_temp'],
+                ATTR_FORECAST_TEMP_LOW: self.weather_data['tempchart'][i+7]['min_temp'],
+                ATTR_FORECAST_WIND_BEARING: self.weather_data['predict']['detail'][i]['day']['wind']['direct'],
+                ATTR_FORECAST_WIND_SPEED: self.weather_data['predict']['detail'][i]['day']['wind']['power']
             }
             forecast_data.append(data_dict)
 
         return forecast_data
 
-
     def update(self):
-
-        json_realtimetext = requests.get(str.format("http://www.nmc.cn/f/rest/real/56586")).content
-        self._realtime_data = json.loads(json_realtimetext)
-
-        json_forcasttext = requests.get(str.format("http://www.nmc.cn/rest/weather?stationid=56586")).content
-        self._forecast_data = json.loads(json_forcasttext)
-
-        json_airtext = requests.get(str.format("http://www.nmc.cn/rest/weather?stationid=56586")).content
-        self._air_data = json.loads(json_airtext)
+        now_ts = int(time.time())
+        # print(self.interval)
+        if now_ts < self.update_ts + int(self.interval):
+            _LOGGER.warning('WeatherNMC waring: update too fast;')
+            # time.sleep(self.interval)
+            # time.sleep(10)
+        weather_uri = 'http://www.nmc.cn/rest/weather?stationid=%s' % self.code
+        try:
+            self._weather_data = requests.get(weather_uri, timeout=3).json()
+            self.weather_data = self._weather_data['data']
+            
+            # _LOGGER.warning(self.weather_data)
+            self.update_ts = int(time.time())
+        except Exception as e:
+            # print(weather_uri)
+            # print(self.weather_data)
+            _LOGGER.warning('WeatherNMC waring: %s' % e)
+            time.sleep(10)
+            self.update()
+            

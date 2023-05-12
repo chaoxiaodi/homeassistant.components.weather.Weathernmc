@@ -1,9 +1,9 @@
   {
     "domain": "weathernmc",
     "name": "weathernmc",
-    "documentation": "https://github.com/AgatsumaZen1tsu/homeassistant.components.weather.Weathernmc",
+    "documentation": "https://github.com/chaoxiaodi/homeassistant.components.weather.Weathernmc",
     "dependencies": [],
-    "codeowners": ["AgatsumaZen1tsu"],
+    "codeowners": ["chaoxiaodi"],
     "requirements": [],
     "version": "1.0.0"
   }
