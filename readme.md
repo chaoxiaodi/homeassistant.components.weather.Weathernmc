@@ -14,3 +14,7 @@ weathernmc 下
         code: 53698
 
 web 页面直接添加天气预报卡片就ok
+
+
+code 查询
+[查询气象站code](https://www.1an.com/h5/product/convention/9901_b.html)
