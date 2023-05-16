@@ -157,6 +157,7 @@ class NMCWeather(WeatherEntity):
         # print(self.interval)
         if now_ts < self.update_ts + int(self.interval):
             _LOGGER.warning('WeatherNMC waring: update too fast;')
+            return
             # time.sleep(self.interval)
             # time.sleep(10)
         weather_uri = 'http://www.nmc.cn/rest/weather?stationid=%s' % self.code
